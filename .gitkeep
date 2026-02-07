@@ -1,0 +1,94 @@
+diff --git a/otimizacao_win10.ps1 b/otimizacao_win10.ps1
+new file mode 100644
+index 0000000000000000000000000000000000000000..8ac49a342dcad146f94b9262a1c34dc828f3fe55
+--- /dev/null
++++ b/otimizacao_win10.ps1
+@@ -0,0 +1,88 @@
++#Requires -Version 5.1
++<#
++.SYNOPSIS
++Script de otimização básica para Windows 10.
++
++.DESCRIPTION
++Executa tarefas comuns de limpeza e ajuste de desempenho:
++- Limpa arquivos temporários (usuário e sistema).
++- Limpa cache do Windows Update.
++- Ajusta plano de energia para Alto Desempenho.
++- Desativa aplicativos em segundo plano (policy atual por usuário).
++- Executa verificações SFC e DISM para reparar imagem do sistema.
++
++Use por sua conta e risco. Recomendado criar ponto de restauração antes.
++#>
++
++[CmdletBinding()]
++param(
++    [switch]$SkipSfcDism
++)
++
++$ErrorActionPreference = 'Stop'
++
++function Test-Admin {
++    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
++    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
++    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
++}
++
++function Write-Step {
++    param([string]$Message)
++    Write-Host "`n==> $Message" -ForegroundColor Cyan
++}
++
++function Remove-IfExists {
++    param([string]$Path)
++    if (Test-Path -LiteralPath $Path) {
++        Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue |
++            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
++    }
++}
++
++if (-not (Test-Admin)) {
++    Write-Host 'Este script precisa ser executado como Administrador.' -ForegroundColor Red
++    Write-Host 'Abra o PowerShell como administrador e rode novamente.' -ForegroundColor Yellow
++    exit 1
++}
++
++Write-Host 'Iniciando otimização do Windows 10...' -ForegroundColor Green
++
++Write-Step 'Limpando arquivos temporários do usuário'
++Remove-IfExists -Path "$env:TEMP"
++Remove-IfExists -Path "$env:LOCALAPPDATA\Temp"
++
++Write-Step 'Limpando arquivos temporários do sistema'
++Remove-IfExists -Path "$env:WINDIR\Temp"
++
++Write-Step 'Limpando cache do Windows Update'
++Stop-Service -Name wuauserv -Force -ErrorAction SilentlyContinue
++Stop-Service -Name bits -Force -ErrorAction SilentlyContinue
++Remove-IfExists -Path "$env:WINDIR\SoftwareDistribution\Download"
++Start-Service -Name bits -ErrorAction SilentlyContinue
++Start-Service -Name wuauserv -ErrorAction SilentlyContinue
++
++Write-Step 'Ajustando plano de energia para Alto Desempenho'
++# GUID padrão do plano High performance
++powercfg /S SCHEME_MIN | Out-Null
++
++Write-Step 'Desativando apps em segundo plano (usuário atual)'
++New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' -Force | Out-Null
++Set-ItemProperty \
++    -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications' \
++    -Name 'GlobalUserDisabled' \
++    -Type DWord \
++    -Value 1
++
++if (-not $SkipSfcDism) {
++    Write-Step 'Executando SFC (pode demorar)'
++    sfc /scannow
++
++    Write-Step 'Executando DISM RestoreHealth (pode demorar)'
++    DISM /Online /Cleanup-Image /RestoreHealth
++} else {
++    Write-Step 'SFC/DISM pulado por parâmetro -SkipSfcDism'
++}
++
++Write-Step 'Concluído'
++Write-Host 'Otimização finalizada. Reinicie o computador para aplicar tudo.' -ForegroundColor Green
